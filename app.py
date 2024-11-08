@@ -3,6 +3,7 @@ import paramiko
 import base64
 import io
 from datetime import datetime
+import re 
 
 app = Flask(__name__)
 
@@ -14,10 +15,12 @@ username = base64.b64decode(encoded_pass).decode('utf-8')
 password = base64.b64decode(encoded_pass).decode('utf-8')
 
 def filter_error_message(output):
-    error_start = "raise_for_execution_errors\n    raise error\npapermill.exceptions.PapermillExecutionError: \n---------------------------------------------------------------------------\n"
-    if error_start in output:
-        return output.split(error_start, 1)[1]
+    error_start = "raise error\r\npapermill.exceptions.PapermillExecutionError: \r\n---------------------------------------------------------------------------\r\n"
+    error_index = output.find(error_start)
+    if error_index != -1:
+        return output[error_index + len(error_start):]
     return output
+
 
 @app.route('/', methods=['GET'])
 def index():
@@ -70,23 +73,25 @@ def run_job():
         # Membaca output dan error
         output_stdout = stdout.read().decode()
         output_stderr = stderr.read().decode()
-
+        
         # Response
         if exit_status == 0:
-            app.logger.info('Perintah berhasil dijalankan.')
+            app.logger.info('Command executed successfully.')
             return jsonify({
                 'status': 'success',
                 'output': output_path,
-                'message': 'Notebook berhasil dieksekusi.'
+                'message': 'Notebook executed successfully.'
             }), 200
         else:
-            app.logger.error(f'Perintah gagal dengan exit status {exit_status}')
-            filtered_output = filter_error_message(output_stderr)
+            app.logger.error(f'Command failed with exit status {exit_status}')
+            filtered_output = filter_error_message(output_stdout)
+            
             return jsonify({
-                'status': 'error ',
-                'output': filtered_output
+                'status': 'error',
+                'output': output_path,
+                'message': 'An error occurred during the notebook execution. Please review the error details below:\n' + filtered_output
             }), 400
-    
+
     except Exception as e:
         app.logger.error(f'Terjadi kesalahan: {str(e)}')
         return jsonify({
@@ -100,4 +105,4 @@ def run_job():
         app.logger.info("Koneksi SSH ditutup.")
 
 if __name__ == '__main__':
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    app.run(debug=True)
